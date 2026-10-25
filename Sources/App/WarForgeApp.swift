@@ -27,6 +27,7 @@ enum PreviewMode {
     static var wantsEvolution: Bool { args.contains("-previewEvolve") }
     static var wantsCreate: Bool { args.contains("-previewCreate") }
     static var wantsMap: Bool { args.contains("-previewMap") }
+    static var wantsAI: Bool { args.contains("-previewAI") }
 }
 
 struct RootView: View {

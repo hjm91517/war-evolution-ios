@@ -24,6 +24,8 @@ final class WorldStore: ObservableObject {
     private var lastSave = Date()
     private var dirty = false
     private var catchUpTask: Task<Void, Never>?
+    private var aiBusy = false
+    private var lastAIDirectiveAt = Date.distantPast
 
     private static var storeURL: URL {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -179,9 +181,87 @@ final class WorldStore: ObservableObject {
             }
         }
 
+        if let rid = runningWorldID, AISettings.shared.isConfigured,
+           now.timeIntervalSince(lastAIDirectiveAt) > 9 {
+            requestDirective(worldID: rid)
+        }
+
         if dirty, now.timeIntervalSince(lastSave) > 4 {
             save()
         }
+    }
+
+    // MARK: - 由用户的 AI 掌控推演
+    private func requestDirective(worldID: UUID) {
+        guard !aiBusy, let i = index(of: worldID) else { return }
+        let snapshot = worlds[i]
+        guard let faction = snapshot.livingFactions.randomElement() else { return }
+        aiBusy = true
+        lastAIDirectiveAt = Date()
+        Task { @MainActor in
+            defer { aiBusy = false }
+            do {
+                let directive = try await AIPersona.directive(world: snapshot, faction: faction)
+                apply(directive, factionID: faction.id, worldID: worldID)
+            } catch {
+                AISettings.shared.lastStatus = "诏令失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func apply(_ directive: AIDirectiveResult, factionID: UUID, worldID: UUID) {
+        guard let i = index(of: worldID) else { return }
+        var w = worlds[i]
+        guard let fi = w.factionIndex(id: factionID), w.factions[fi].isAlive else { return }
+        var f = w.factions[fi]
+        let targetName = directive.target ?? ""
+        var headline = ""
+
+        switch directive.action {
+        case "war":
+            guard let target = w.livingFactions.first(where: { $0.name == targetName && $0.id != f.id })
+                    ?? w.livingFactions.filter({ $0.id != f.id }).randomElement() else { return }
+            w.setRelation(f.id, target.id, -82)
+            f.aggression = min(0.98, f.aggression + 0.04)
+            headline = "\(f.name) 向 \(target.name) 宣战"
+            Simulation.addMarker(&w, kind: .war, cell: f.capital, faction: f, note: "AI 诏令")
+        case "expand":
+            f.expansion = min(0.98, f.expansion + 0.05)
+            f.food += 120
+            headline = "\(f.name) 下令拓殖"
+            Simulation.addMarker(&w, kind: .expand, cell: f.capital, faction: f, note: "AI 诏令")
+        case "develop":
+            f.tech += 1.6
+            f.wealth += 90
+            headline = "\(f.name) 转向内政与工造"
+            Simulation.addMarker(&w, kind: .build, cell: f.capital, faction: f, note: "AI 诏令")
+        case "trade":
+            if let target = w.livingFactions.first(where: { $0.name == targetName && $0.id != f.id }) {
+                w.setRelation(f.id, target.id, max(-20, w.relation(f.id, target.id) + 25))
+                f.wealth += 140
+                headline = "\(f.name) 与 \(target.name) 通商"
+            } else {
+                f.wealth += 120
+                headline = "\(f.name) 开放商路"
+            }
+            Simulation.addMarker(&w, kind: .trade, cell: f.capital, faction: f, note: "AI 诏令")
+        case "purge":
+            f.stability = min(98, f.stability + 9)
+            f.population *= 0.985
+            headline = "\(f.name) 清洗内部"
+            Simulation.addMarker(&w, kind: .revolt, cell: f.capital, faction: f, note: "AI 诏令")
+        default:
+            f.tech += 0.8
+            headline = "\(f.name) 积蓄力量"
+        }
+
+        w.factions[fi] = f
+        Simulation.addEvent(&w, kind: .politics, headline: headline,
+                            detail: "AI「\(f.aiName)」下达诏令：\(directive.reason)。",
+                            faction: f, cell: f.capital, importance: 2)
+        worlds[i] = w
+        dirty = true
+        AISettings.shared.lastStatus = "诏令已执行 · \(directive.reason)"
     }
 
     // MARK: - 时间补算
@@ -383,6 +463,7 @@ enum WorldBuilder {
     static func sampleWorld() -> World {
         let geo = GeoWorld.shared
         var w = blankWorld(name: "赤土纪元", seed: 0x5EED_7742, level: .nation)
+        w.startYear = -3000
         let map = TerrainMap.generate(seed: w.seed)
         let specs: [(String, Double, Double, Doctrine, String)] = [
             ("朔方王朝", 38, 108, .conquest,

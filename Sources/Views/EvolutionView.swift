@@ -16,6 +16,7 @@ struct EvolutionView: View {
     @State private var showExit = false
     @State private var showEdit = false
     @State private var detailScroll = false
+    @ObservedObject private var aiSettings = AISettings.shared
 
     private var world: World? { store.world(worldID) }
 
@@ -176,9 +177,18 @@ struct EvolutionView: View {
                         .tracking(1)
                         .foregroundStyle(Theme.gold)
                     Text("·").foregroundStyle(Theme.textFaint).font(Theme.label(9))
-                    Text(Fmt.year(world.tick))
+                    Text(world.yearLabel())
                         .font(Theme.mono(9.5))
                         .foregroundStyle(Theme.textDim)
+                    if aiSettings.isConfigured {
+                        Text("AI")
+                            .font(Theme.mono(7.5, weight: .bold))
+                            .foregroundStyle(Theme.teal)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(Theme.teal.opacity(0.12)))
+                    }
                     if world.continuous {
                         HStack(spacing: 3) {
                             Circle().fill(Theme.gold).frame(width: 3.5, height: 3.5)
@@ -283,7 +293,7 @@ struct EvolutionView: View {
 
                 Rectangle().fill(Color.white.opacity(0.08)).frame(width: 0.6, height: 16)
 
-                Text(Fmt.year(world.tick))
+                Text(world.yearLabel())
                     .font(Theme.mono(11, weight: .medium))
                     .foregroundStyle(Theme.textSoft)
                     .contentTransition(.numericText())
@@ -519,8 +529,8 @@ struct FeedRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
             VStack(spacing: 3) {
-                Text("\(event.tick)")
-                    .font(Theme.mono(9, weight: .medium))
+                Text(world.shortYear(event.tick))
+                    .font(Theme.mono(8.5, weight: .medium))
                     .foregroundStyle(Theme.textFaint)
                 Rectangle()
                     .fill(Color.white.opacity(0.10))

@@ -413,7 +413,7 @@ enum Simulation {
             f.science = f.doctrine.science * 0.55 + f.science * 0.45
             f.expansion = f.doctrine.expansion * 0.55 + f.expansion * 0.45
             f.population = 110 + Double(i % 4) * 26
-            f.tech = 0.6
+            f.tech = World.initialTech(for: w.startYear) + Double(i % 3) * 0.4
             f.military = 16 + Double(i % 3) * 4
             f.food = 150
             f.wealth = 55

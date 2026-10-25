@@ -69,6 +69,15 @@ jobs:
           xcrun simctl io "$DEVICE_ID" screenshot shots/05-map.png || true
           xcrun simctl terminate "$DEVICE_ID" "$APP" || true
 
+      - name: Capture AI settings
+        run: |
+          APP=com.hjm91517.warforge
+          xcrun simctl launch "$DEVICE_ID" "$APP" -previewAI
+          sleep 5
+          xcrun simctl io "$DEVICE_ID" screenshot shots/08-ai.jpg || true
+          xcrun simctl io "$DEVICE_ID" screenshot shots/08-ai.png || true
+          xcrun simctl terminate "$DEVICE_ID" "$APP" || true
+
       - name: Capture evolution
         run: |
           APP=com.hjm91517.warforge
@@ -78,9 +87,17 @@ jobs:
           sleep 12
           xcrun simctl io "$DEVICE_ID" screenshot shots/07-evolve-later.png || true
 
+      - name: Compress for transfer
+        run: |
+          mkdir -p shots_small
+          for f in shots/*.png; do
+            sips -Z 1000 -s format jpeg -s formatOptions 76 "$f" --out "shots_small/$(basename "$f" .png).jpg" >/dev/null
+          done
+          ls -lh shots_small
+
       - uses: actions/upload-artifact@v4
         with:
           name: shots
-          path: shots
+          path: shots_small
           if-no-files-found: warn
           retention-days: 14

@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var renameText = ""
     @State private var deleteWorld: World? = nil
     @State private var showAbout = false
+    @State private var showAI = false
     @State private var appeared = false
     @State private var previewMap = false
 
@@ -94,6 +95,9 @@ struct HomeView: View {
         .sheet(isPresented: $showAbout) {
             AboutView()
         }
+        .sheet(isPresented: $showAI) {
+            AISettingsView()
+        }
         .alert("重命名世界", isPresented: Binding(
             get: { renameWorld != nil },
             set: { if !$0 { renameWorld = nil } }
@@ -150,10 +154,27 @@ struct HomeView: View {
                         .foregroundStyle(Theme.textDim)
                 }
                 Spacer()
-                Button {
-                    Haptics.tap()
-                    showAbout = true
-                } label: {
+                HStack(spacing: 8) {
+                    Button {
+                        Haptics.tap()
+                        showAI = true
+                    } label: {
+                        ZStack {
+                            Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                            Circle().fill(Theme.teal.opacity(0.08))
+                            Image(systemName: "bolt.horizontal.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.teal)
+                        }
+                        .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(Pressable())
+                    .padding(.top, 6)
+
+                    Button {
+                        Haptics.tap()
+                        showAbout = true
+                    } label: {
                     ZStack {
                         Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
                         Circle().fill(Theme.gold.opacity(0.06))
@@ -163,8 +184,9 @@ struct HomeView: View {
                     }
                     .frame(width: 34, height: 34)
                 }
-                .buttonStyle(Pressable())
-                .padding(.top, 6)
+                    .buttonStyle(Pressable())
+                    .padding(.top, 6)
+                }
             }
         }
     }
@@ -312,6 +334,8 @@ struct HomeView: View {
                 showCreate = true
             } else if PreviewMode.wantsMap {
                 previewMap = true
+            } else if PreviewMode.wantsAI {
+                showAI = true
             }
         }
     }
@@ -374,7 +398,7 @@ struct WorldCard: View {
                             .foregroundStyle(Theme.gold.opacity(0.9))
                         Text("·")
                             .foregroundStyle(Theme.textFaint)
-                        Text(Fmt.year(world.tick))
+                        Text(world.currentYear)
                             .font(Theme.mono(9.5))
                             .foregroundStyle(Theme.textDim)
                         Text("·")

@@ -240,6 +240,49 @@ struct CreateWorldView: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "初始时间", english: "EPOCH")
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(Array(World.startPresets.indices), id: \.self) { i in
+                                let preset = World.startPresets[i]
+                                Button {
+                                    Haptics.select()
+                                    withAnimation(Motion.quick) { draft.startYear = preset.year }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(preset.title)
+                                            .font(Theme.body(11, weight: .semibold))
+                                            .foregroundStyle(draft.startYear == preset.year ? Theme.ink : Theme.textSoft)
+                                        Text(preset.detail)
+                                            .font(Theme.label(8))
+                                            .foregroundStyle(draft.startYear == preset.year
+                                                             ? Theme.ink.opacity(0.62) : Theme.textFaint)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .fill(draft.startYear == preset.year
+                                              ? Theme.gold : Color.white.opacity(0.04)))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    HStack {
+                        Text(draft.yearLabel(0))
+                            .font(Theme.mono(11, weight: .medium))
+                            .foregroundStyle(Theme.gold)
+                        Spacer()
+                        Text("可微调")
+                            .font(Theme.label(9)).tracking(1)
+                            .foregroundStyle(Theme.textFaint)
+                        Stepper("", value: $draft.startYear, step: 50)
+                            .labelsHidden()
+                            .tint(Theme.gold)
+                    }
+                }
+
                 Panel(padding: 16) {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "leaf")
@@ -558,7 +601,7 @@ struct CreateWorldView: View {
                 HStack(spacing: 10) {
                     summaryTile("势力", "\(draft.factions.count)", "brain.head.profile")
                     summaryTile("疆域格", "\(draft.claimedLand)", "square.grid.3x3")
-                    summaryTile("起始年", "0", "calendar")
+                    summaryTile("起始年", draft.shortYear(0), "calendar")
                 }
 
                 if !missingAI.isEmpty {
@@ -785,6 +828,9 @@ struct FactionEditorView: View {
     @State private var phase = 0
     @State private var scan: CGFloat = -1
     @State private var aiReveal = false
+    @State private var aiError: String?
+    @State private var showAISettings = false
+    @ObservedObject private var aiSettings = AISettings.shared
 
     private let phases = ["读取背景语义", "推导执政路线", "生成旗色与口号", "AI 接管完成"]
 
@@ -885,6 +931,9 @@ struct FactionEditorView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showAISettings) {
+            AISettingsView()
+        }
         .onAppear {
             if draft.ai != nil { aiReveal = true }
         }
@@ -896,6 +945,23 @@ struct FactionEditorView: View {
             HStack {
                 SectionLabel(text: "AI 核心", english: "CORE")
                 Spacer()
+                if aiSettings.isConfigured {
+                    Text(aiSettings.model)
+                        .font(Theme.mono(8))
+                        .foregroundStyle(Theme.teal)
+                } else {
+                    Button {
+                        Haptics.tap()
+                        showAISettings = true
+                    } label: {
+                        Text("接入我的 AI")
+                            .font(Theme.label(9)).tracking(1)
+                            .foregroundStyle(Theme.teal)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Capsule().fill(Theme.teal.opacity(0.10)))
+                    }
+                    .buttonStyle(.plain)
+                }
                 if let ai = draft.ai, !generating {
                     Button {
                         Haptics.tap()
@@ -931,6 +997,12 @@ struct FactionEditorView: View {
                     Spacer()
                 }
             } else {
+                if let aiError {
+                    Text(aiError)
+                        .font(Theme.label(9))
+                        .foregroundStyle(Theme.ember)
+                        .lineLimit(2)
+                }
                 Button {
                     generate()
                 } label: {
@@ -1051,25 +1123,43 @@ struct FactionEditorView: View {
         generating = true
         phase = 0
         aiReveal = false
+        aiError = nil
+        let seed = worldSeed
+            &+ UInt64(abs((draft.name + draft.background).hashValue % 999_983))
+        let name = draft.name.isEmpty ? "无名势力" : draft.name
         Task { @MainActor in
             for i in 0..<phases.count {
                 phase = i
-                try? await Task.sleep(nanoseconds: 240_000_000)
+                try? await Task.sleep(nanoseconds: 200_000_000)
             }
-            let seed = worldSeed
-                &+ UInt64(abs((draft.name + draft.background).hashValue % 999_983))
-            let ai = FactionAIForge.generate(name: draft.name.isEmpty ? "无名势力" : draft.name,
-                                             background: draft.background,
-                                             seed: seed,
-                                             usedColors: usedColors)
-            draft.ai = ai
-            draft.colorIndex = ai.colorIndex
-            draft.doctrine = ai.doctrine
-            draft.symbol = ai.doctrine.symbol
-            draft.aggression = ai.aggression
-            draft.industry = ai.industry
-            draft.science = ai.science
-            draft.expansion = ai.expansion
+
+            var result: FactionAI?
+            if AISettings.shared.isConfigured {
+                do {
+                    result = try await AIPersona.generate(name: name,
+                                                          background: draft.background,
+                                                          seed: seed,
+                                                          usedColors: usedColors)
+                    AISettings.shared.lastStatus = "人格已生成 · \(AISettings.shared.model)"
+                } catch {
+                    aiError = "AI 接口失败，已回退本地核心：\(error.localizedDescription)"
+                    AISettings.shared.lastStatus = "生成失败"
+                }
+            }
+            if result == nil {
+                result = FactionAIForge.generate(name: name, background: draft.background,
+                                                 seed: seed, usedColors: usedColors)
+            }
+            if let ai = result {
+                draft.ai = ai
+                draft.colorIndex = ai.colorIndex
+                draft.doctrine = ai.doctrine
+                draft.symbol = ai.doctrine.symbol
+                draft.aggression = ai.aggression
+                draft.industry = ai.industry
+                draft.science = ai.science
+                draft.expansion = ai.expansion
+            }
             generating = false
             withAnimation(Motion.spring) { aiReveal = true }
             Haptics.success()

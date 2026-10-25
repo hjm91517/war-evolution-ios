@@ -415,6 +415,7 @@ struct World: Identifiable, Codable, Equatable {
     var createdAt: Date = Date()
     var lastActiveAt: Date = Date()
     var tick: Int = 0
+    var startYear: Int = -4000        // 自定义初始时间（负数为公元前）
     var speed: Int = 4                // 1 / 4 / 16 / 64
     var continuous: Bool = false
     var factions: [Faction] = []
@@ -433,6 +434,46 @@ struct World: Identifiable, Codable, Equatable {
     }
 
     var livingFactions: [Faction] { factions.filter { $0.isAlive } }
+
+    /// 允许玩家自定义开局年份
+    func yearLabel(_ tickOverride: Int? = nil) -> String {
+        let y = startYear + (tickOverride ?? tick)
+        if y < 0 { return "公元前 \(abs(y)) 年" }
+        if y == 0 { return "公元元年" }
+        return "公元 \(y) 年"
+    }
+
+    var currentYear: String { yearLabel() }
+
+    func shortYear(_ tickOverride: Int? = nil) -> String {
+        let y = startYear + (tickOverride ?? tick)
+        return y < 0 ? "前\(abs(y))" : "\(y)"
+    }
+
+    static func initialTech(for year: Int) -> Double {
+        switch year {
+        case ..<(-2000): return 0.8
+        case ..<(-1200): return 3.2
+        case ..<(-600): return 7.0
+        case ..<0: return 12.0
+        case ..<800: return 20.0
+        case ..<1400: return 30.0
+        case ..<1700: return 45.0
+        case ..<1850: return 58.0
+        case ..<1950: return 80.0
+        default: return 105.0
+        }
+    }
+
+    static let startPresets: [(year: Int, title: String, detail: String)] = [
+        (-4000, "新石器", "聚落与火种"),
+        (-1200, "青铜", "城邦与战车"),
+        (-300, "古典", "铁器与法典"),
+        (800, "中世纪", "城堡与信仰"),
+        (1500, "火药", "航海与枪炮"),
+        (1900, "工业", "蒸汽与钢铁"),
+        (2025, "近未来", "电网与轨道")
+    ]
 
     var dominantTech: Double {
         factions.filter { $0.isAlive }.map(\.tech).max() ?? 0
