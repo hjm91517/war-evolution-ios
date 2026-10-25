@@ -64,7 +64,7 @@ struct AISettingsView: View {
 
                             field("接口地址", placeholder: "https://api.openai.com/v1", text: $settings.baseURL, secure: false)
                             field("密钥", placeholder: "sk-...", text: $settings.apiKey, secure: true)
-                            field("模型", placeholder: "gpt-4o-mini", text: $settings.model)
+                            field("模型", placeholder: "gpt-4o-mini", text: $settings.model, secure: false)
                         }
                     }
 
