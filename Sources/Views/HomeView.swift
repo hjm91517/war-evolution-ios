@@ -541,7 +541,12 @@ struct AboutView: View {
                             HStack {
                                 Text("核心").font(Theme.body(12)).foregroundStyle(Theme.textDim)
                                 Spacer()
-                                Text("本地推演 · 离线运行").font(Theme.body(11)).foregroundStyle(Theme.textSoft)
+                                Text("自备 AI 或本地核心").font(Theme.body(11)).foregroundStyle(Theme.textSoft)
+                            }
+                            HStack {
+                                Text("地图素材").font(Theme.body(12)).foregroundStyle(Theme.textDim)
+                                Spacer()
+                                Text("NASA Blue Marble · 公有领域").font(Theme.body(10)).foregroundStyle(Theme.textSoft)
                             }
                         }
                     }
