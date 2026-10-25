@@ -290,6 +290,42 @@ struct TerritoryData: Codable, Equatable {
     }
 }
 
+// MARK: - 势力 AI（全权接管）
+struct FactionAI: Codable, Equatable {
+    var code: String          // AI 代号
+    var slogan: String        // 口号
+    var brief: String         // 自述
+    var doctrine: Doctrine
+    var colorIndex: Int
+    var aggression: Double
+    var industry: Double
+    var science: Double
+    var expansion: Double
+    var seed: UInt64
+    var model: String
+
+    var modelTag: String { model }
+}
+
+// MARK: - 势力的 AI 核心
+// 玩家只提供名字与初始背景；AI 由此推导口号、旗色、路线与决策参数，全权接管该势力。
+struct FactionAI: Codable, Equatable {
+    var name: String            // AI 代号，如「苍穹·执令者」
+    var slogan: String          // 立国口号
+    var brief: String           // AI 自述的执政方针
+    var doctrine: Doctrine      // 内部路线（不再由玩家选择）
+    var colorIndex: Int         // AI 生成的旗色
+    var aggression: Double
+    var industry: Double
+    var science: Double
+    var expansion: Double
+    var seed: UInt64
+    var model: String = "LOCAL CORE 2"
+    var createdAt: Date = Date()
+
+    var isReady: Bool { true }
+}
+
 // MARK: - 势力
 struct Faction: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
@@ -298,6 +334,8 @@ struct Faction: Identifiable, Codable, Equatable {
     var symbol: String = "shield.lefthalf.filled"
     var doctrine: Doctrine = .conquest
     var background: String = ""
+    var ai: FactionAI? = nil
+    var ai: FactionAI? = nil
 
     // 性格权重 0...1
     var aggression: Double = 0.5
@@ -326,13 +364,19 @@ struct Faction: Identifiable, Codable, Equatable {
     var territory: Int = 0
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, colorIndex, symbol, doctrine, background, aggression, industry,
+        case id, name, colorIndex, symbol, doctrine, background, ai, aggression, industry,
              science, expansion, population, tech, military, food, wealth, morale,
              stability, capital, isAlive, wonders, battlesWon, foundedTick, fallenTick,
              lastAction
     }
 
     var color: Color { Theme.factionColor(colorIndex) }
+
+    var isAIConfigured: Bool { ai != nil }
+    var aiName: String { ai?.name ?? "未配置 AI" }
+    var slogan: String { ai?.slogan ?? "" }
+
+    var isReady: Bool { ai != nil }
 
     var power: Double {
         military * 0.55 + tech * 0.9 + population * 0.02 + Double(territory) * 0.5

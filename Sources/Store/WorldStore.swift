@@ -294,14 +294,16 @@ enum WorldBuilder {
         guard center >= 0, center < w.territory.cells.count else { return 0 }
         let cx = center % geo.gridW
         let cy = center / geo.gridW
+        // radius 以「度」为单位，换算成格数
+        let rCells = max(1, Int((Double(radius) / Double(geo.cellSize)).rounded()))
         var painted = 0
-        for row in max(0, cy - radius)...min(geo.gridH - 1, cy + radius) {
-            for col in (cx - radius)...(cx + radius) {
+        for row in max(0, cy - rCells)...min(geo.gridH - 1, cy + rCells) {
+            for col in (cx - rCells)...(cx + rCells) {
                 var dc = col - cx
                 if dc > geo.gridW / 2 { dc -= geo.gridW }
                 if dc < -geo.gridW / 2 { dc += geo.gridW }
                 let dr = row - cy
-                if dc * dc + dr * dr > radius * radius { continue }
+                if dc * dc + dr * dr > rCells * rCells { continue }
                 let cc = (col % geo.gridW + geo.gridW) % geo.gridW
                 let idx = row * geo.gridW + cc
                 guard geo.land[idx] else { continue }
@@ -351,6 +353,14 @@ enum WorldBuilder {
 
     static func finish(_ w: inout World, terrain: TerrainMap) {
         for i in w.factions.indices {
+            if let ai = w.factions[i].ai {
+                w.factions[i].doctrine = ai.doctrine
+                w.factions[i].aggression = ai.aggression
+                w.factions[i].industry = ai.industry
+                w.factions[i].science = ai.science
+                w.factions[i].expansion = ai.expansion
+                w.factions[i].colorIndex = ai.colorIndex
+            }
             if w.factions[i].capital < 0 || !GeoWorld.shared.land[w.factions[i].capital] {
                 w.factions[i].capital = bestOwnedCell(owner: i + 1, in: w, terrain: terrain) ?? -1
             }
@@ -389,10 +399,18 @@ enum WorldBuilder {
         for (i, spec) in specs.enumerated() {
             var f = newFaction(index: i, seed: w.seed)
             f.name = spec.0
-            f.doctrine = spec.3
-            f.symbol = spec.3.symbol
             f.background = spec.4
-            BackgroundInterpreter.apply(to: &f)
+            let ai = FactionAIForge.generate(name: f.name, background: f.background,
+                                             seed: w.seed &+ UInt64(i &* 997),
+                                             usedColors: w.factions.map(\.colorIndex))
+            f.ai = ai
+            f.colorIndex = ai.colorIndex
+            f.doctrine = ai.doctrine
+            f.symbol = ai.doctrine.symbol
+            f.aggression = ai.aggression
+            f.industry = ai.industry
+            f.science = ai.science
+            f.expansion = ai.expansion
             w.factions.append(f)
             let cell = nearestLandCell(lat: spec.1, lon: spec.2)
             if cell >= 0 {
@@ -410,7 +428,22 @@ enum WorldBuilder {
 
     static func previewDraft() -> World {
         var w = blankWorld(name: "朔风纪元", seed: 0x5EED_7742, level: .nation)
-        w.factions = (0..<4).map { newFaction(index: $0, seed: w.seed) }
+        w.factions = (0..<4).map { idx -> Faction in
+            var f = newFaction(index: idx, seed: w.seed)
+            let ai = FactionAIForge.generate(name: f.name,
+                                             background: "起于河谷的农耕部族，重视历法与灌溉，信奉秩序。",
+                                             seed: w.seed &+ UInt64(idx &* 97),
+                                             usedColors: [])
+            f.ai = ai
+            f.colorIndex = ai.colorIndex
+            f.doctrine = ai.doctrine
+            f.symbol = ai.doctrine.symbol
+            f.aggression = ai.aggression
+            f.industry = ai.industry
+            f.science = ai.science
+            f.expansion = ai.expansion
+            return f
+        }
         let map = TerrainMap.generate(seed: w.seed)
         autoDistribute(&w, terrain: map)
         return w

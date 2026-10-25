@@ -18,6 +18,11 @@ final class GeoWorld {
 
     var aspect: CGFloat { CGFloat(gridW) / CGFloat(gridH) }
 
+    /// 每格边长（度）
+    var cellSize: CGFloat { 360.0 / CGFloat(gridW) }
+    var mapWidth: CGFloat { 360.0 }
+    var mapHeight: CGFloat { CGFloat(latTop - latBottom) }
+
     private struct Packed: Codable {
         let gridW: Int
         let gridH: Int
@@ -112,15 +117,23 @@ final class GeoWorld {
     }
 
     func cellIndex(mapPoint p: CGPoint) -> Int? {
-        let col = Int(floor(p.x))
-        let row = Int(floor(p.y))
+        let col = Int(floor(p.x / cellSize))
+        let row = Int(floor(p.y / cellSize))
         return cellIndex(col: col, row: row)
     }
 
     func center(of cell: Int) -> CGPoint {
         let col = cell % gridW
         let row = cell / gridW
-        return CGPoint(x: Double(col) + 0.5, y: Double(row) + 0.5)
+        let cs = cellSize
+        return CGPoint(x: (CGFloat(col) + 0.5) * cs, y: (CGFloat(row) + 0.5) * cs)
+    }
+
+    func rect(of cell: Int) -> CGRect {
+        let col = cell % gridW
+        let row = cell / gridW
+        let cs = cellSize
+        return CGRect(x: CGFloat(col) * cs, y: CGFloat(row) * cs, width: cs, height: cs)
     }
 
     func latLon(of cell: Int) -> (lat: Double, lon: Double) {

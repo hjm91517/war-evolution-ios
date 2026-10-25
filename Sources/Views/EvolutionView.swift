@@ -7,6 +7,7 @@ struct EvolutionView: View {
     let worldID: UUID
 
     @State private var mesh: TerritoryMesh?
+    @State private var territoryImage: UIImage?
     @State private var lastMeshBuild = Date.distantPast
     @State private var selectedFaction: Int? = nil
     @State private var showFactionDetail = false
@@ -23,7 +24,8 @@ struct EvolutionView: View {
             let wide = geo.size.width > 700
             ZStack(alignment: .topTrailing) {
                 if let world {
-                    EvolutionMapView(world: world, mesh: mesh, selectedFaction: selectedFaction) { cell in
+                    EvolutionMapView(world: world, mesh: mesh, territoryImage: territoryImage,
+                                     selectedFaction: selectedFaction) { cell in
                         let owner = Int(world.territory.owner(at: cell))
                         if owner > 0 {
                             selectedFaction = owner - 1
@@ -387,6 +389,7 @@ struct EvolutionView: View {
         guard let w = world else { return }
         lastMeshBuild = now
         mesh = TerritoryMesh.build(w)
+        territoryImage = TerritoryRaster.make(world: w)
     }
 }
 
@@ -625,7 +628,7 @@ struct FactionDetailSheet: View {
                                     .tracking(1.5)
                                     .foregroundStyle(Theme.text)
                                 HStack(spacing: 6) {
-                                    Pill(text: f.doctrine.title, tint: f.color, fill: f.color.opacity(0.10))
+                                    Pill(text: f.aiName, tint: f.color, fill: f.color.opacity(0.10))
                                     Pill(text: world.eraName, tint: Theme.gold, mono: true)
                                     if !f.isAlive {
                                         Pill(text: "已灭亡", tint: Theme.ember, mono: true)
@@ -643,6 +646,14 @@ struct FactionDetailSheet: View {
                             .buttonStyle(.plain)
                         }
                         .padding(.top, 22)
+
+                        if !f.slogan.isEmpty {
+                            Text("「\(f.slogan)」")
+                                .font(Theme.display(16, weight: .medium))
+                                .tracking(1.4)
+                                .foregroundStyle(Theme.gold.opacity(0.9))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
                         // 数据
                         Panel(padding: 16) {

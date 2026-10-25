@@ -57,23 +57,22 @@ enum Theme {
         .system(size: size, weight: .semibold, design: .default)
     }
 
+    // 自然系旗色：全部为低饱和中间调，能直接压在地球纹理上而不刺眼
     static let factionColors: [Color] = [
-        Color(hex: 0xD9A05B), // 1 金
-        Color(hex: 0xB7443C), // 2 赤
-        Color(hex: 0x4E8F8B), // 3 青
-        Color(hex: 0x6E7FA8), // 4 钢蓝
-        Color(hex: 0x8A9B54), // 5 苔绿
-        Color(hex: 0x9B6B8E), // 6 紫褐
-        Color(hex: 0xC97B52), // 7 铜
-        Color(hex: 0x5A7C6F), // 8 松绿
-        Color(hex: 0xA98C4F), // 9 赭
-        Color(hex: 0x7A6B9E), // 10 青紫
-        Color(hex: 0xB58A78), // 11 陶
-        Color(hex: 0x557B92)  // 12 灰蓝
+        Color(hex: 0xC0875C), // 陶金
+        Color(hex: 0x93A07C), // 苔绿
+        Color(hex: 0x6F8FA6), // 雾蓝
+        Color(hex: 0xA47C8E), // 暮紫
+        Color(hex: 0xC0A870), // 砂金
+        Color(hex: 0x7FA098), // 海松
+        Color(hex: 0x9E6B5A), // 赭红
+        Color(hex: 0x8D88A6), // 灰紫
+        Color(hex: 0xA68F6E), // 壤土
+        Color(hex: 0x73899B)  // 铁蓝
     ]
 
-    static let factionColorNames = ["鎏金", "赤染", "青霜", "钢蓝", "苔绿", "紫褐",
-                                    "赤铜", "松墨", "赭石", "青紫", "陶砂", "灰蓝"]
+    static let factionColorNames = ["陶金", "苔绿", "雾蓝", "暮紫", "砂金",
+                                    "海松", "赭红", "灰紫", "壤土", "铁蓝"]
 
     static func factionColor(_ index: Int) -> Color {
         factionColors[((index % factionColors.count) + factionColors.count) % factionColors.count]

@@ -20,6 +20,7 @@ struct MapPainterView: View {
     @State private var hoverCell: Int? = nil
     @State private var lastCell: Int? = nil
     @State private var mesh: TerritoryMesh?
+    @State private var territoryImage: UIImage?
     @State private var lastRebuild = Date.distantPast
     @State private var size: CGSize = .zero
 
@@ -31,7 +32,8 @@ struct MapPainterView: View {
         GeometryReader { geo in
             let sz = geo.size
             ZStack {
-                WorldMapCanvas(world: world, mesh: mesh, zoom: zoom * pinch, offset: offset)
+                WorldMapCanvas(world: world, mesh: mesh, territoryImage: territoryImage,
+                               zoom: zoom * pinch, offset: offset)
 
                 // 笔刷预览
                 if let cell = hoverCell, tool == .brush {
@@ -64,7 +66,10 @@ struct MapPainterView: View {
             }
             .onAppear {
                 size = sz
-                if mesh == nil { mesh = TerritoryMesh.build(world, step: 2) }
+                if mesh == nil {
+                    mesh = TerritoryMesh.build(world)
+                    territoryImage = TerritoryRaster.make(world: world)
+                }
             }
             .onChange(of: sz) { newValue in size = newValue }
             .contentShape(Rectangle())
@@ -167,7 +172,8 @@ struct MapPainterView: View {
                 dragStartOffset = nil
                 lastCell = nil
                 if mesh == nil || Date().timeIntervalSince(lastRebuild) > 0.05 {
-                    mesh = TerritoryMesh.build(world, step: 2)
+                    mesh = TerritoryMesh.build(world)
+                    territoryImage = TerritoryRaster.make(world: world)
                     lastRebuild = Date()
                 }
             }
@@ -186,8 +192,9 @@ struct MapPainterView: View {
         if painted > 0 {
             world = w
             Haptics.tap()
-            if Date().timeIntervalSince(lastRebuild) > 0.10 {
-                mesh = TerritoryMesh.build(world, step: 2)
+            if Date().timeIntervalSince(lastRebuild) > 0.09 {
+                mesh = TerritoryMesh.build(world)
+                territoryImage = TerritoryRaster.make(world: world)
                 lastRebuild = Date()
             }
         }
@@ -198,6 +205,7 @@ struct MapPainterView: View {
 struct EvolutionMapView: View {
     let world: World
     let mesh: TerritoryMesh?
+    var territoryImage: UIImage? = nil
     var selectedFaction: Int? = nil
     var onSelectCell: ((Int) -> Void)? = nil
 
@@ -216,7 +224,8 @@ struct EvolutionMapView: View {
         GeometryReader { geo in
             let sz = geo.size
             ZStack {
-                WorldMapCanvas(world: world, mesh: mesh, selectedFaction: selectedFaction,
+                WorldMapCanvas(world: world, mesh: mesh, territoryImage: territoryImage,
+                               selectedFaction: selectedFaction,
                                zoom: zoom * pinch, offset: offset)
 
                 // 行动标记

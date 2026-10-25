@@ -23,69 +23,59 @@ jobs:
       - name: Boot simulator
         run: |
           set -e
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c "
-import json,sys
-d=json.load(sys.stdin)['devices']
-best=None
-for rt,devs in d.items():
-    if 'iOS' not in rt: continue
-    for dev in devs:
-        if dev['name'].startswith('iPhone'):
-            print(dev['udid']); raise SystemExit
-")
-          echo "DEVICE_ID=$DEVICE_ID" >> $GITHUB_ENV
-          echo "picked $DEVICE_ID"
-          xcrun simctl boot "$DEVICE_ID" || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
-          xcrun simctl status_bar "$DEVICE_ID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+          UDID=$(xcrun simctl list devices available | grep "iPhone" | head -1 | grep -oE "[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}")
+          echo "DEVICE_ID=$UDID" >> "$GITHUB_ENV"
+          echo "picked device $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
 
-      - name: Install
+      - name: Install app
         run: |
           xcrun simctl install "$DEVICE_ID" build/Build/Products/Release-iphonesimulator/WarForge.app
           mkdir -p shots
 
-      - name: Capture launch + home
+      - name: Capture launch
         run: |
-          set -x
           APP=com.hjm91517.warforge
-          xcrun simctl launch "$DEVICE_ID" $APP || true
+          xcrun simctl launch "$DEVICE_ID" "$APP" || true
           sleep 1.2
           xcrun simctl io "$DEVICE_ID" screenshot shots/01-launch.png || true
           sleep 4
           xcrun simctl io "$DEVICE_ID" screenshot shots/02-home-empty.png || true
-          xcrun simctl terminate "$DEVICE_ID" $APP || true
+          xcrun simctl terminate "$DEVICE_ID" "$APP" || true
 
       - name: Capture home
         run: |
           APP=com.hjm91517.warforge
-          xcrun simctl launch "$DEVICE_ID" $APP -previewHome
-          sleep 7
+          xcrun simctl launch "$DEVICE_ID" "$APP" -previewHome
+          sleep 8
           xcrun simctl io "$DEVICE_ID" screenshot shots/03-home.png || true
-          xcrun simctl terminate "$DEVICE_ID" $APP || true
+          xcrun simctl terminate "$DEVICE_ID" "$APP" || true
 
-      - name: Capture create flow
+      - name: Capture create
         run: |
           APP=com.hjm91517.warforge
-          xcrun simctl launch "$DEVICE_ID" $APP -previewCreate
+          xcrun simctl launch "$DEVICE_ID" "$APP" -previewCreate
           sleep 6
           xcrun simctl io "$DEVICE_ID" screenshot shots/04-create.png || true
-          xcrun simctl terminate "$DEVICE_ID" $APP || true
+          xcrun simctl terminate "$DEVICE_ID" "$APP" || true
 
-      - name: Capture map painting
+      - name: Capture map
         run: |
           APP=com.hjm91517.warforge
-          xcrun simctl launch "$DEVICE_ID" $APP -previewMap
-          sleep 8
+          xcrun simctl launch "$DEVICE_ID" "$APP" -previewMap
+          sleep 9
           xcrun simctl io "$DEVICE_ID" screenshot shots/05-map.png || true
-          xcrun simctl terminate "$DEVICE_ID" $APP || true
+          xcrun simctl terminate "$DEVICE_ID" "$APP" || true
 
       - name: Capture evolution
         run: |
           APP=com.hjm91517.warforge
-          xcrun simctl launch "$DEVICE_ID" $APP -previewEvolve
-          sleep 14
+          xcrun simctl launch "$DEVICE_ID" "$APP" -previewEvolve
+          sleep 15
           xcrun simctl io "$DEVICE_ID" screenshot shots/06-evolve.png || true
-          sleep 10
+          sleep 12
           xcrun simctl io "$DEVICE_ID" screenshot shots/07-evolve-later.png || true
 
       - uses: actions/upload-artifact@v4

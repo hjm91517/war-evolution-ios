@@ -25,6 +25,7 @@ enum Simulation {
 
         var rng = SeededRNG(state: w.rngState)
         let eraBefore = Era.index(for: w.dominantTech)
+        let area = Double(geo.cellSize)          // 0.5° 每格面积系数
 
         var agg = [FactionAggregate](repeating: FactionAggregate(), count: N)
         var fronts = [[Int]](repeating: [], count: N)
@@ -76,7 +77,7 @@ enum Simulation {
 
             let techMul = 1 + f.tech * 0.010
             let doctrineFood = f.doctrine == .nomad ? 1.16 : (f.doctrine == .maritime ? 1.10 : 1.0)
-            let production = a.food * 0.235 * techMul * doctrineFood * (0.70 + f.stability / 280)
+            let production = a.food * 0.235 * area * techMul * doctrineFood * (0.70 + f.stability / 280)
             let consumption = f.population * 0.0132
             f.food = min(f.food + production - consumption, f.population * 3.4 + 500)
             if f.food < 0 {
@@ -86,7 +87,7 @@ enum Simulation {
                 f.stability = max(5, f.stability - 0.6)
             }
 
-            let cap = max(140, Double(a.cells) * 23 * (1 + f.tech * 0.02) + 90)
+            let cap = max(140, Double(a.cells) * 23 * area * (1 + f.tech * 0.02) + 90)
             let foodFactor = f.food > consumption * 2 ? 1.0 : 0.55
             let growth = 0.0215 * (0.5 + f.morale / 150) * foodFactor * (1 - f.population / cap)
             if growth > 0 { f.population += f.population * growth }
@@ -96,7 +97,7 @@ enum Simulation {
             f.tech += techGain
 
             let tradeBonus = f.doctrine == .commerce ? 0.55 : (f.doctrine == .maritime ? 0.28 : 0.0)
-            f.wealth += a.trade * 0.052 * (1 + tradeBonus) + Double(a.cells) * 0.012
+            f.wealth += a.trade * 0.052 * area * (1 + tradeBonus) + Double(a.cells) * 0.012 * area
             f.wealth -= f.military * 0.0045
             f.wealth = max(0, min(f.wealth, 40000))
 
@@ -111,14 +112,14 @@ enum Simulation {
             f.military += (max(3, targetMilitary) - f.military) * 0.035
             f.military = max(3, min(f.military, f.population))
 
-            f.stability += (a.cells > 360 ? -0.025 : 0.026)
+            f.stability += (Double(a.cells) * area > 360 ? -0.025 : 0.026)
             if f.doctrine == .faith { f.stability += 0.05 }
             if isAtWar { f.stability -= 0.05 }
             f.stability = min(98, max(8, f.stability))
             f.morale = min(100, max(5, f.morale + (f.food > consumption * 3 ? 0.16 : -0.22)))
 
             // —— 拓殖：优先粮食高、临海、易守的格子
-            if a.cells < 2800, f.food > 80, !fronts[i].isEmpty {
+            if Double(a.cells) * area < 2800, f.food > 80, !fronts[i].isEmpty {
                 let tries = f.expansion > 0.65 ? 2 : 1
                 for _ in 0..<tries {
                     let chance = 0.46 * f.expansion * (0.6 + f.morale / 240)
@@ -373,7 +374,8 @@ enum Simulation {
 
     // MARK: - 工具
     static func power(_ f: Faction) -> Double {
-        f.military * 0.55 + f.tech * 0.85 + f.population * 0.018 + Double(f.territory) * 0.55 + f.stability * 0.15
+        f.military * 0.55 + f.tech * 0.85 + f.population * 0.018
+            + Double(f.territory) * 0.27 + f.stability * 0.15
     }
 
     private static func freeNeighbor(of cell: Int, owner: Int, in cells: [UInt8], geo: GeoWorld) -> Int? {

@@ -15,10 +15,11 @@ struct CreateWorldView: View {
     @State private var tool: MapTool = .brush
     @State private var brushOwner: Int = 1
     @State private var undoStack: [[UInt8]] = []
-    @State private var editingFaction: Int? = nil
-    @State private var appeared = false
+    @State private var editing: Faction? = nil
+    @State private var editingIsNew = false
+    @State private var pageIn = false
 
-    private let stepTitles = ["命名与纪元", "划定疆域", "配置势力", "检视开局"]
+    private let stepTitles = ["命名与纪元", "创建势力", "划定疆域", "检视开局"]
 
     init(initialWorld: World?, onFinish: ((UUID) -> Void)? = nil) {
         self.initialWorld = initialWorld
@@ -27,12 +28,12 @@ struct CreateWorldView: View {
             _draft = State(initialValue: w)
             _isEditing = State(initialValue: true)
             let forceMap = ProcessInfo.processInfo.arguments.contains("-previewMap")
-            _step = State(initialValue: (w.phase == .draft && !forceMap) ? 0 : 1)
+            _step = State(initialValue: (w.phase == .draft && !forceMap) ? 0 : (forceMap ? 2 : 0))
         } else {
             let seed = UInt64.random(in: 1...99_999_999)
             var w = WorldBuilder.blankWorld(name: NameForge.worldName(seed: seed),
                                             seed: seed, level: .nation)
-            w.factions = (0..<4).map { WorldBuilder.newFaction(index: $0, seed: seed) }
+            w.factions = []
             _draft = State(initialValue: w)
             _isEditing = State(initialValue: false)
         }
@@ -40,14 +41,20 @@ struct CreateWorldView: View {
 
     var body: some View {
         ZStack {
-            Backdrop(showGrid: step != 1)
+            Backdrop(showGrid: step != 2)
 
-            switch step {
-            case 0: nameStep
-            case 1: territoryStep
-            case 2: factionStep
-            default: reviewStep
+            Group {
+                switch step {
+                case 0: nameStep
+                case 1: factionStep
+                case 2: territoryStep
+                default: reviewStep
+                }
             }
+            .transition(.asymmetric(
+                insertion: .opacity.combined(with: .offset(y: 14)),
+                removal: .opacity.combined(with: .offset(y: -10))
+            ))
 
             VStack(spacing: 0) {
                 topBar
@@ -56,30 +63,27 @@ struct CreateWorldView: View {
         }
         .onAppear {
             if terrain == nil { terrain = store.terrain(for: draft) }
-            withAnimation(Motion.standard) { appeared = true }
+            withAnimation(Motion.enter) { pageIn = true }
         }
-        .sheet(item: Binding(
-            get: { editingFaction.map { IndexBox(index: $0) } },
-            set: { editingFaction = $0?.index }
-        )) { box in
-            if let t = terrain, box.index < draft.factions.count {
-                FactionEditorView(
-                    faction: $draft.factions[box.index],
-                    terrain: t,
-                    worldSeed: draft.seed,
-                    canDelete: draft.factions.count > 1,
-                    onDelete: {
-                        removeFaction(box.index)
-                        editingFaction = nil
+        .sheet(item: $editing) { f in
+            FactionEditorView(
+                initial: f,
+                isNew: editingIsNew,
+                worldSeed: draft.seed,
+                usedColors: usedColors(excluding: f.id),
+                onSave: { updated in
+                    if let idx = draft.factions.firstIndex(where: { $0.id == updated.id }) {
+                        draft.factions[idx] = updated
+                    } else {
+                        draft.factions.append(updated)
+                        brushOwner = draft.factions.count
                     }
-                )
-                .presentationDetents([.large])
-            }
+                    Haptics.success()
+                }
+            )
         }
-        .interactiveDismissDisabled(hasProgress)
+        .interactiveDismissDisabled(!isEditing)
     }
-
-    private var hasProgress: Bool { !isEditing }
 
     // MARK: - 顶栏
     private var topBar: some View {
@@ -96,8 +100,8 @@ struct CreateWorldView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Theme.textSoft)
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(Color.white.opacity(0.05)))
-                    .hairlineBorder(Color.white.opacity(0.08), radius: 999)
+                    .background(Circle().fill(Color.white.opacity(0.06)))
+                    .hairlineBorder(Color.white.opacity(0.09), radius: 999)
             }
             .buttonStyle(Pressable())
 
@@ -105,7 +109,7 @@ struct CreateWorldView: View {
                 Text(isEditing ? "编辑战争" : "创建战争")
                     .font(Theme.label(9))
                     .tracking(2)
-                    .foregroundStyle(Theme.gold.opacity(0.8))
+                    .foregroundStyle(Theme.gold.opacity(0.85))
                 Text(stepTitles[min(step, stepTitles.count - 1)])
                     .font(Theme.title(14, weight: .semibold))
                     .foregroundStyle(Theme.text)
@@ -113,7 +117,6 @@ struct CreateWorldView: View {
 
             Spacer()
 
-            // 步骤进度
             HStack(spacing: 4) {
                 ForEach(0..<4, id: \.self) { i in
                     Capsule()
@@ -122,12 +125,10 @@ struct CreateWorldView: View {
                         .animation(Motion.quick, value: step)
                 }
             }
-            .padding(.trailing, 4)
 
             if step < 3 {
                 Button {
                     Haptics.select()
-                    if step == 1 { commitPaint() }
                     withAnimation(Motion.standard) { step += 1 }
                 } label: {
                     HStack(spacing: 4) {
@@ -141,7 +142,7 @@ struct CreateWorldView: View {
                 }
                 .buttonStyle(Pressable())
                 .disabled(!canAdvance)
-                .opacity(canAdvance ? 1 : 0.4)
+                .opacity(canAdvance ? 1 : 0.35)
             }
         }
         .padding(.horizontal, 16)
@@ -151,28 +152,25 @@ struct CreateWorldView: View {
     private var canAdvance: Bool {
         switch step {
         case 0: return !draft.name.trimmingCharacters(in: .whitespaces).isEmpty
-        case 1: return draft.claimedLand > 0
-        case 2: return draft.factions.allSatisfy { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        case 1: return draft.factions.count >= 2 && draft.factions.allSatisfy { $0.isAIConfigured }
+        case 2: return draft.claimedLand > 0
         default: return true
         }
     }
 
-    // MARK: - 步骤 0：命名
+    // MARK: - 步骤 0
     private var nameStep: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
-                Spacer().frame(height: 58)
+                Spacer().frame(height: 62)
 
                 Text("给你的世界一个名字")
                     .font(Theme.display(28, weight: .semibold))
                     .tracking(2)
-                    .foregroundStyle(
-                        LinearGradient(colors: [Theme.text, Theme.sand],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
-                    .padding(.top, 12)
+                    .foregroundStyle(LinearGradient(colors: [Theme.text, Theme.sand],
+                                                   startPoint: .top, endPoint: .bottom))
 
-                Text("它会被刻在时间线的起点，此后每一次兴亡都记在这个名字下面。")
+                Text("它会被刻在时间线的起点。此后每一次兴亡，都记在这个名字下面。")
                     .font(Theme.body(12))
                     .lineSpacing(4)
                     .foregroundStyle(Theme.textDim)
@@ -183,13 +181,12 @@ struct CreateWorldView: View {
                         .foregroundStyle(Theme.text)
                         .padding(.vertical, 10)
                     Rectangle()
-                        .fill(LinearGradient(colors: [Theme.gold, Theme.gold.opacity(0.1)],
+                        .fill(LinearGradient(colors: [Theme.gold, Theme.gold.opacity(0.08)],
                                              startPoint: .leading, endPoint: .trailing))
                         .frame(height: 1)
                     HStack {
                         Text("SEED \(String(format: "%08X", UInt32(truncatingIfNeeded: draft.seed)))")
-                            .font(Theme.mono(9))
-                            .tracking(1)
+                            .font(Theme.mono(9)).tracking(1)
                             .foregroundStyle(Theme.textFaint)
                         Spacer()
                         Button {
@@ -207,7 +204,6 @@ struct CreateWorldView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.top, 4)
 
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: "初始范围级别", english: "SCALE")
@@ -229,19 +225,14 @@ struct CreateWorldView: View {
                                         .foregroundStyle(Theme.textDim)
                                 }
                                 Spacer()
-                                Text("笔刷 \(level.brush)°")
-                                    .font(Theme.mono(9))
-                                    .foregroundStyle(Theme.textFaint)
                                 Circle()
                                     .strokeBorder(draft.level == level ? Theme.gold : Color.white.opacity(0.18),
                                                   lineWidth: draft.level == level ? 4 : 1)
                                     .frame(width: 14, height: 14)
                             }
                             .padding(12)
-                            .background(
-                                RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
-                                    .fill(draft.level == level ? Theme.gold.opacity(0.06) : Color.clear)
-                            )
+                            .background(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
+                                .fill(draft.level == level ? Theme.gold.opacity(0.06) : Color.clear))
                             .hairlineBorder(draft.level == level ? Theme.gold.opacity(0.35) : Color.white.opacity(0.06),
                                             radius: Theme.rMid)
                         }
@@ -275,7 +266,172 @@ struct CreateWorldView: View {
         .scrollDismissesKeyboard(.interactively)
     }
 
-    // MARK: - 步骤 1：划界
+    // MARK: - 步骤 1：势力
+    private var factionStep: some View {
+        let counts = ownerCounts()
+        return ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                Spacer().frame(height: 62)
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("创建势力")
+                        .font(Theme.display(26, weight: .semibold))
+                        .tracking(2)
+                        .foregroundStyle(Theme.text)
+                    Spacer()
+                    Text("\(draft.factions.count) / 8")
+                        .font(Theme.mono(10))
+                        .foregroundStyle(Theme.textFaint)
+                }
+
+                Text("每个势力都需要一个 AI 核心。你只写下名字与出身，AI 会据此生成口号、旗色与执政路线，然后全权接管它。")
+                    .font(Theme.body(11.5))
+                    .lineSpacing(4.5)
+                    .foregroundStyle(Theme.textDim)
+
+                if draft.factions.isEmpty {
+                    emptyFactionCard
+                } else {
+                    ForEach(Array(draft.factions.indices), id: \.self) { idx in
+                        let f = draft.factions[idx]
+                        Button {
+                            Haptics.select()
+                            editing = f
+                            editingIsNew = false
+                        } label: {
+                            factionCard(f, count: idx < counts.count ? counts[idx] : 0)
+                        }
+                        .buttonStyle(Pressable(scale: 0.99))
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                removeFaction(idx)
+                            } label: { Label("移除此势力", systemImage: "trash") }
+                        }
+                    }
+                }
+
+                if draft.factions.count < 8 {
+                    Button {
+                        Haptics.tap()
+                        var f = Faction()
+                        f.name = ""
+                        f.background = ""
+                        f.colorIndex = 0
+                        editingIsNew = true
+                        editing = f
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                            Text(draft.factions.isEmpty ? "创建第一个势力" : "创建势力")
+                                .font(Theme.body(12.5, weight: .medium))
+                        }
+                        .foregroundStyle(Theme.gold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
+                            .fill(Theme.gold.opacity(0.05)))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
+                            .strokeBorder(Theme.gold.opacity(0.25),
+                                          style: StrokeStyle(lineWidth: 0.9, dash: [4, 3])))
+                    }
+                    .buttonStyle(Pressable())
+                }
+
+                if draft.factions.count < 2 {
+                    Text("至少需要 2 个配置了 AI 的势力才能开始推演")
+                        .font(Theme.label(9))
+                        .tracking(1)
+                        .foregroundStyle(Theme.textFaint)
+                        .padding(.top, 2)
+                }
+
+                Spacer().frame(height: 120)
+            }
+            .padding(.horizontal, 18)
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var emptyFactionCard: some View {
+        Panel(padding: 22) {
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle().fill(Theme.gold.opacity(0.06)).frame(width: 64, height: 64)
+                    Circle().strokeBorder(Theme.gold.opacity(0.22), lineWidth: 0.8).frame(width: 64, height: 64)
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundStyle(Theme.gold)
+                }
+                Text("还没有势力")
+                    .font(Theme.title(15, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                Text("创建势力 → 写下出身 → AI 接管。\n没有 AI 的势力无法进入推演。")
+                    .font(Theme.body(11.5))
+                    .lineSpacing(4)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.textDim)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func factionCard(_ f: Faction, count: Int) -> some View {
+        Panel(padding: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(f.color.opacity(0.16))
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(f.color.opacity(0.4), lineWidth: 0.9)
+                    Image(systemName: f.ai == nil ? "questionmark" : f.symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(f.ai == nil ? Theme.textFaint : f.color)
+                }
+                .frame(width: 40, height: 40)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 7) {
+                        Text(f.name.isEmpty ? "未命名势力" : f.name)
+                            .font(Theme.title(15, weight: .semibold))
+                            .foregroundStyle(f.name.isEmpty ? Theme.textFaint : Theme.text)
+                        if f.isAIConfigured {
+                            Pill(text: "AI 已接管", tint: Theme.teal, fill: Theme.teal.opacity(0.10))
+                        } else {
+                            Pill(text: "待配置 AI", tint: Theme.ember, fill: Theme.ember.opacity(0.10))
+                        }
+                        Spacer()
+                        Text("\(count) 格")
+                            .font(Theme.mono(9))
+                            .foregroundStyle(Theme.textFaint)
+                    }
+
+                    if let ai = f.ai {
+                        Text("「\(ai.slogan)」")
+                            .font(Theme.display(13, weight: .medium))
+                            .tracking(1)
+                            .foregroundStyle(Theme.gold.opacity(0.92))
+                            .lineLimit(1)
+                        Text(ai.name)
+                            .font(Theme.mono(8.5))
+                            .tracking(1)
+                            .foregroundStyle(Theme.textFaint)
+                    } else {
+                        Text(f.background.isEmpty ? "点按补全出身，并让 AI 接管。" : "背景已写好，等待生成 AI 核心。")
+                            .font(Theme.body(11))
+                            .foregroundStyle(Theme.textFaint)
+                    }
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.textFaint)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: - 步骤 2：划界
     private var territoryStep: some View {
         GeometryReader { geo in
             let counts = ownerCounts()
@@ -289,7 +445,6 @@ struct CreateWorldView: View {
                 }
 
                 VStack(spacing: 10) {
-                    // 势力笔刷
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(Array(draft.factions.indices), id: \.self) { idx in
@@ -309,53 +464,29 @@ struct CreateWorldView: View {
                                     }
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 7)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(brushOwner == idx + 1 ? Theme.factionColor(f.colorIndex).opacity(0.18) : Theme.panel.opacity(0.9))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .strokeBorder(brushOwner == idx + 1 ? f.color.opacity(0.6) : Color.white.opacity(0.07),
-                                                          lineWidth: 0.9)
-                                    )
+                                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(brushOwner == idx + 1
+                                              ? Theme.factionColor(f.colorIndex).opacity(0.22)
+                                              : Theme.panel.opacity(0.92)))
+                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .strokeBorder(brushOwner == idx + 1
+                                                      ? f.color.opacity(0.65)
+                                                      : Color.white.opacity(0.07),
+                                                      lineWidth: 0.9))
                                 }
                                 .buttonStyle(.plain)
                             }
-                            Button {
-                                addFaction()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "plus").font(.system(size: 9, weight: .bold))
-                                    Text("势力").font(Theme.body(11, weight: .medium))
-                                }
-                                .foregroundStyle(Theme.gold)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 7)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Theme.gold.opacity(0.08))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .strokeBorder(Theme.gold.opacity(0.25), lineWidth: 0.8)
-                                )
-                            }
-                            .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 2)
                     }
 
                     HStack(spacing: 8) {
-                        Text(tool == .brush ? "\(draft.level.brush * 2)° 笔刷" : "浏览模式")
+                        Text(tool == .brush ? "笔刷 \(Int(draft.level.brush))°" : "浏览模式")
                             .font(Theme.mono(9))
                             .foregroundStyle(Theme.textFaint)
                         Spacer()
-                        smallAction("arrow.uturn.backward", "撤销", enabled: !undoStack.isEmpty) {
-                            undo()
-                        }
-                        smallAction("wand.and.stars", "智能分布") {
-                            autoDistribute()
-                        }
+                        smallAction("arrow.uturn.backward", "撤销", enabled: !undoStack.isEmpty) { undo() }
+                        smallAction("wand.and.stars", "自动划界") { autoDistribute() }
                         smallAction(tool == .brush ? "hand.draw.fill" : "paintbrush.pointed.fill",
                                     tool == .brush ? "查看" : "划界") {
                             tool = tool == .brush ? .hand : .brush
@@ -363,10 +494,8 @@ struct CreateWorldView: View {
                     }
                 }
                 .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.rLarge, style: .continuous)
-                        .fill(Theme.panel.opacity(0.97))
-                )
+                .background(RoundedRectangle(cornerRadius: Theme.rLarge, style: .continuous)
+                    .fill(Theme.panel.opacity(0.97)))
                 .hairlineBorder(Color.white.opacity(0.08), radius: Theme.rLarge)
                 .panelShadow(strong: true)
                 .padding(.horizontal, 12)
@@ -376,7 +505,8 @@ struct CreateWorldView: View {
         .ignoresSafeArea(edges: .bottom)
     }
 
-    private func smallAction(_ symbol: String, _ title: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+    private func smallAction(_ symbol: String, _ title: String, enabled: Bool = true,
+                             action: @escaping () -> Void) -> some View {
         Button {
             guard enabled else { return }
             Haptics.tap()
@@ -394,136 +524,11 @@ struct CreateWorldView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - 步骤 2：势力
-    private var factionStep: some View {
-        let counts = ownerCounts()
-        return ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                Spacer().frame(height: 56)
-
-                HStack(alignment: .firstTextBaseline) {
-                    Text("配置势力")
-                        .font(Theme.display(24, weight: .semibold))
-                        .tracking(2)
-                        .foregroundStyle(Theme.text)
-                    Spacer()
-                    Text("\(draft.factions.count) / 12")
-                        .font(Theme.mono(10))
-                        .foregroundStyle(Theme.textFaint)
-                }
-
-                Text("写下每个势力的出身、资源与野心。系统会从文字里读出它的路线，再让它按这条路线活几百年。")
-                    .font(Theme.body(11.5))
-                    .lineSpacing(4)
-                    .foregroundStyle(Theme.textDim)
-                    .padding(.bottom, 2)
-
-                ForEach(Array(draft.factions.indices), id: \.self) { idx in
-                    let f = draft.factions[idx]
-                    Button {
-                        Haptics.select()
-                        editingFaction = idx
-                    } label: {
-                        factionCard(idx: idx, faction: f, count: idx < counts.count ? counts[idx] : 0)
-                    }
-                    .buttonStyle(Pressable(scale: 0.99))
-                }
-
-                if draft.factions.count < 12 {
-                    Button {
-                        addFaction()
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "plus").font(.system(size: 11, weight: .bold))
-                            Text("添加势力").font(Theme.body(12.5, weight: .medium))
-                        }
-                        .foregroundStyle(Theme.gold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
-                                .fill(Theme.gold.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
-                                .strokeBorder(Theme.gold.opacity(0.25),
-                                              style: StrokeStyle(lineWidth: 0.9, dash: [4, 3]))
-                        )
-                    }
-                    .buttonStyle(Pressable())
-                }
-
-                Spacer().frame(height: 120)
-            }
-            .padding(.horizontal, 18)
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func factionCard(idx: Int, faction f: Faction, count: Int) -> some View {
-        Panel(padding: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(f.color.opacity(0.14))
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(f.color.opacity(0.35), lineWidth: 0.9)
-                    Image(systemName: f.symbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(f.color)
-                }
-                .frame(width: 38, height: 38)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 7) {
-                        Text(f.name)
-                            .font(Theme.title(15, weight: .semibold))
-                            .foregroundStyle(Theme.text)
-                        Pill(text: f.doctrine.title, tint: f.color.opacity(0.9),
-                             fill: f.color.opacity(0.10))
-                        Spacer()
-                        Text("\(count) 格")
-                            .font(Theme.mono(9))
-                            .foregroundStyle(Theme.textFaint)
-                    }
-                    Text(f.background.isEmpty ? "尚未写下背景 —— 点按补全出身与野心。" : f.background)
-                        .font(Theme.body(11))
-                        .lineSpacing(3.5)
-                        .foregroundStyle(f.background.isEmpty ? Theme.textFaint : Theme.textDim)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    HStack(spacing: 10) {
-                        trait("尚武", f.aggression)
-                        trait("工造", f.industry)
-                        trait("崇文", f.science)
-                        trait("扩张", f.expansion)
-                    }
-                    .padding(.top, 2)
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.textFaint)
-                    .padding(.top, 4)
-            }
-        }
-    }
-
-    private func trait(_ name: String, _ v: Double) -> some View {
-        HStack(spacing: 3) {
-            Text(name).font(Theme.label(8.5)).foregroundStyle(Theme.textFaint)
-            Text(String(format: "%.0f", v * 100))
-                .font(Theme.mono(9))
-                .foregroundStyle(Theme.textSoft)
-        }
-    }
-
     // MARK: - 步骤 3：检视
     private var reviewStep: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                Spacer().frame(height: 56)
+                Spacer().frame(height: 62)
 
                 Text("开局检视")
                     .font(Theme.display(26, weight: .semibold))
@@ -538,7 +543,7 @@ struct CreateWorldView: View {
                                 Text(draft.name)
                                     .font(Theme.title(15, weight: .semibold))
                                     .foregroundStyle(Theme.text)
-                                Text("\(draft.level.title) · 原始时代 · \(draft.factions.count) 势力")
+                                Text("\(draft.level.title) · 原始时代 · \(draft.factions.count) 个 AI 势力")
                                     .font(Theme.body(10))
                                     .foregroundStyle(Theme.textDim)
                             }
@@ -551,17 +556,36 @@ struct CreateWorldView: View {
                 }
 
                 HStack(spacing: 10) {
-                    summaryTile("势力", "\(draft.factions.count)", "shield.lefthalf.filled")
+                    summaryTile("势力", "\(draft.factions.count)", "brain.head.profile")
                     summaryTile("疆域格", "\(draft.claimedLand)", "square.grid.3x3")
                     summaryTile("起始年", "0", "calendar")
                 }
 
-                if emptyFactions.count > 0 {
+                if !missingAI.isEmpty {
                     Panel(padding: 14) {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.ember)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("还有势力没有 AI")
+                                    .font(Theme.title(12, weight: .semibold))
+                                    .foregroundStyle(Theme.text)
+                                Text("\(missingAI.map(\.name).joined(separator: "、")) 需要配置 AI 核心后才能进入推演。")
+                                    .font(Theme.body(10.5))
+                                    .lineSpacing(3.5)
+                                    .foregroundStyle(Theme.textDim)
+                            }
+                        }
+                    }
+                }
+
+                if emptyFactions.count > 0 {
+                    Panel(padding: 14) {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "square.dashed")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Theme.gold)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("有势力还没有疆域")
                                     .font(Theme.title(12, weight: .semibold))
@@ -575,32 +599,46 @@ struct CreateWorldView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionLabel(text: "参战势力", english: "FACTIONS")
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "AI 势力", english: "AUTONOMOUS")
                     ForEach(Array(draft.factions.indices), id: \.self) { idx in
                         let f = draft.factions[idx]
-                        HStack(spacing: 9) {
-                            Circle().fill(f.color).frame(width: 7, height: 7)
-                            Text(f.name).font(Theme.body(12.5, weight: .medium)).foregroundStyle(Theme.text)
-                            Pill(text: f.doctrine.title, tint: Theme.textDim, mono: true)
-                            Spacer()
-                            Text("\(cellCount(idx + 1)) 格")
-                                .font(Theme.mono(9.5))
-                                .foregroundStyle(Theme.textFaint)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Circle().fill(f.color).frame(width: 7, height: 7)
+                                Text(f.name)
+                                    .font(Theme.body(12.5, weight: .semibold))
+                                    .foregroundStyle(Theme.text)
+                                Text(f.aiName)
+                                    .font(Theme.mono(8))
+                                    .foregroundStyle(Theme.textFaint)
+                                Spacer()
+                                Text("\(cellCount(idx + 1)) 格")
+                                    .font(Theme.mono(9))
+                                    .foregroundStyle(Theme.textFaint)
+                            }
+                            if !f.slogan.isEmpty {
+                                Text("「\(f.slogan)」")
+                                    .font(Theme.display(12))
+                                    .tracking(0.8)
+                                    .foregroundStyle(Theme.gold.opacity(0.8))
+                                    .padding(.leading, 15)
+                            }
                         }
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 7)
                         Rectangle().fill(Color.white.opacity(0.05)).frame(height: 0.6)
                     }
                 }
 
                 GoldButton(title: isEditing ? "保存并继续演变" : "开始演变",
-                           subtitle: "让 \(draft.factions.count) 个势力自己走完接下来的几百年",
-                           symbol: "play.fill") {
+                           subtitle: "\(draft.factions.count) 个 AI 将自行决定接下来几百年",
+                           symbol: "play.fill",
+                           enabled: missingAI.isEmpty && !draft.factions.isEmpty) {
                     finish()
                 }
-                .padding(.top, 6)
+                .padding(.top, 4)
 
-                Text("开局后仍可随时进入编辑，修改势力背景与疆域。")
+                Text("开局后仍可进入编辑，修改 AI 的背景设定与疆域。")
                     .font(Theme.label(9))
                     .tracking(1.2)
                     .foregroundStyle(Theme.textFaint)
@@ -624,17 +662,20 @@ struct CreateWorldView: View {
                     .font(Theme.mono(18, weight: .semibold))
                     .foregroundStyle(Theme.text)
                 Text(title)
-                    .font(Theme.label(9))
-                    .tracking(1)
+                    .font(Theme.label(9)).tracking(1)
                     .foregroundStyle(Theme.textFaint)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - 动作
+    // MARK: - 数据
     private var claimRatio: Double {
         Double(draft.claimedLand) / Double(max(1, GeoWorld.shared.landCount))
+    }
+
+    private var missingAI: [Faction] {
+        draft.factions.filter { !$0.isAIConfigured }
     }
 
     private var emptyFactions: [Faction] {
@@ -643,6 +684,10 @@ struct CreateWorldView: View {
             out.append(draft.factions[idx])
         }
         return out
+    }
+
+    private func usedColors(excluding id: UUID) -> [Int] {
+        draft.factions.filter { $0.id != id }.map(\.colorIndex)
     }
 
     private func ownerCounts() -> [Int] {
@@ -660,21 +705,8 @@ struct CreateWorldView: View {
         return n
     }
 
-    private func addFaction() {
-        guard draft.factions.count < 12 else { return }
-        let idx = draft.factions.count
-        var f = WorldBuilder.newFaction(index: idx, seed: draft.seed &+ UInt64(idx &* 31))
-        f.name = NameForge.factionName(seed: draft.seed, index: idx)
-        f.background = ""
-        draft.factions.append(f)
-        brushOwner = idx + 1
-        withAnimation(Motion.spring) {}
-        Haptics.success()
-    }
-
     private func removeFaction(_ index: Int) {
-        guard draft.factions.count > 1, index < draft.factions.count else { return }
-        // 清除该势力疆域并重建 owner 索引
+        guard index < draft.factions.count else { return }
         var cells = draft.territory.cells
         for i in cells.indices {
             let o = Int(cells[i])
@@ -684,8 +716,7 @@ struct CreateWorldView: View {
         }
         draft.territory = TerritoryData(cells: cells)
         draft.factions.remove(at: index)
-        brushOwner = min(brushOwner, draft.factions.count)
-        if brushOwner < 1 { brushOwner = 1 }
+        brushOwner = min(max(1, brushOwner), max(1, draft.factions.count))
         Haptics.warning()
     }
 
@@ -695,15 +726,10 @@ struct CreateWorldView: View {
         Haptics.select()
     }
 
-    private func commitPaint() {
-        // 记录一次快照用于撤销
-        if undoStack.count >= 8 { undoStack.removeFirst() }
-        undoStack.append(draft.territory.cells)
-    }
-
     private func autoDistribute() {
-        guard let t = terrain else { return }
-        commitPaint()
+        guard let t = terrain, !draft.factions.isEmpty else { return }
+        if undoStack.count >= 6 { undoStack.removeFirst() }
+        undoStack.append(draft.territory.cells)
         draft.territory = TerritoryData(cells: [UInt8](repeating: 0,
                                                        count: GeoWorld.shared.gridW * GeoWorld.shared.gridH))
         var w = draft
@@ -721,7 +747,14 @@ struct CreateWorldView: View {
         w.lastActiveAt = Date()
         if isEditing {
             for i in w.factions.indices {
-                BackgroundInterpreter.apply(to: &w.factions[i])
+                if let ai = w.factions[i].ai {
+                    BackgroundInterpreter.apply(to: &w.factions[i])
+                    w.factions[i].doctrine = ai.doctrine
+                    w.factions[i].aggression = ai.aggression
+                    w.factions[i].industry = ai.industry
+                    w.factions[i].science = ai.science
+                    w.factions[i].expansion = ai.expansion
+                }
             }
             store.update(w)
             store.flash("已保存")
@@ -733,31 +766,41 @@ struct CreateWorldView: View {
         Haptics.success()
         let id = w.id
         dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            onFinish?(id)
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onFinish?(id) }
     }
 }
 
-struct IndexBox: Identifiable {
-    var index: Int
-    var id: Int { index }
-}
-
-// MARK: - 势力编辑
+// MARK: - 势力编辑器（名字 + 背景 → AI 接管）
 struct FactionEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var faction: Faction
-    var terrain: TerrainMap
+
+    var initial: Faction
+    var isNew: Bool
     var worldSeed: UInt64
-    var canDelete: Bool
-    var onDelete: () -> Void
+    var usedColors: [Int]
+    var onSave: (Faction) -> Void
 
-    @State private var read: BackgroundRead = BackgroundRead()
+    @State private var draft: Faction
+    @State private var generating = false
+    @State private var phase = 0
+    @State private var scan: CGFloat = -1
+    @State private var aiReveal = false
 
-    private let symbols = ["shield.lefthalf.filled", "crown.fill", "flame.fill", "bolt.fill",
-                           "leaf.fill", "mountain.2.fill", "sailboat.fill", "building.columns.fill",
-                           "figure.walk", "cart.fill", "book.closed.fill", "hammer.fill"]
+    private let phases = ["读取背景语义", "推导执政路线", "生成旗色与口号", "AI 接管完成"]
+
+    init(initial: Faction, isNew: Bool, worldSeed: UInt64,
+         usedColors: [Int], onSave: @escaping (Faction) -> Void) {
+        self.initial = initial
+        self.isNew = isNew
+        self.worldSeed = worldSeed
+        self.usedColors = usedColors
+        self.onSave = onSave
+        _draft = State(initialValue: initial)
+    }
+
+    private var canSave: Bool {
+        !draft.name.trimmingCharacters(in: .whitespaces).isEmpty && draft.ai != nil
+    }
 
     var body: some View {
         ZStack {
@@ -765,227 +808,75 @@ struct FactionEditorView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack {
-                        Text("势力设定")
+                        Text(isNew ? "创建势力" : "编辑势力")
                             .font(Theme.display(22, weight: .semibold))
                             .tracking(2)
                             .foregroundStyle(Theme.text)
                         Spacer()
                         Button { dismiss() } label: {
-                            Text("完成")
-                                .font(Theme.body(12, weight: .semibold))
-                                .foregroundStyle(Theme.ink)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(Theme.gold))
+                            Image(systemName: "xmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Theme.textDim)
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(Color.white.opacity(0.06)))
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding(.top, 22)
 
-                    // 名称
                     VStack(alignment: .leading, spacing: 6) {
                         SectionLabel(text: "名号", english: "NAME")
-                        TextField("势力名称", text: $faction.name)
-                            .font(Theme.title(20, weight: .semibold))
+                        TextField("势力名称", text: $draft.name)
+                            .font(Theme.title(22, weight: .semibold))
                             .foregroundStyle(Theme.text)
                             .padding(.vertical, 8)
                         Rectangle()
-                            .fill(LinearGradient(colors: [Theme.gold, Theme.gold.opacity(0.1)],
+                            .fill(LinearGradient(colors: [Theme.gold, Theme.gold.opacity(0.08)],
                                                  startPoint: .leading, endPoint: .trailing))
                             .frame(height: 1)
                     }
 
-                    // 徽记
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionLabel(text: "徽记", english: "SIGIL")
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
-                            ForEach(symbols, id: \.self) { s in
-                                Button {
-                                    Haptics.select()
-                                    faction.symbol = s
-                                } label: {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .fill(faction.symbol == s ? faction.color.opacity(0.20) : Color.white.opacity(0.04))
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .strokeBorder(faction.symbol == s ? faction.color.opacity(0.75) : Color.white.opacity(0.07),
-                                                          lineWidth: 0.9)
-                                        Image(systemName: s)
-                                            .font(.system(size: 15, weight: .medium))
-                                            .foregroundStyle(faction.symbol == s ? faction.color : Theme.textDim)
-                                    }
-                                    .frame(height: 44)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    // 颜色
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionLabel(text: "旗色", english: "COLOR")
-                        HStack(spacing: 8) {
-                            ForEach(Array(Theme.factionColors.indices), id: \.self) { idx in
-                                let c = Theme.factionColors[idx]
-                                Button {
-                                    Haptics.select()
-                                    faction.colorIndex = idx
-                                } label: {
-                                    Circle()
-                                        .fill(c)
-                                        .frame(width: 24, height: 24)
-                                        .overlay(
-                                            Circle().strokeBorder(Theme.text.opacity(faction.colorIndex == idx ? 0.9 : 0),
-                                                                  lineWidth: 1.6)
-                                                .padding(-3)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        Text(Theme.factionColorName(faction.colorIndex))
-                            .font(Theme.label(9))
-                            .tracking(1.4)
-                            .foregroundStyle(Theme.textFaint)
-                    }
-
-                    // 路线
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionLabel(text: "立国路线", english: "DOCTRINE")
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
-                            ForEach(Doctrine.allCases) { d in
-                                Button {
-                                    Haptics.select()
-                                    faction.doctrine = d
-                                    faction.aggression = d.aggression
-                                    faction.science = d.science
-                                    faction.expansion = d.expansion
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: d.symbol)
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundStyle(faction.doctrine == d ? Theme.gold : Theme.textDim)
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(d.title)
-                                                .font(Theme.body(12, weight: .semibold))
-                                                .foregroundStyle(Theme.text)
-                                            Text(d.detail)
-                                                .font(Theme.label(8))
-                                                .foregroundStyle(Theme.textFaint)
-                                                .lineLimit(1)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .fill(faction.doctrine == d ? Theme.gold.opacity(0.08) : Color.white.opacity(0.03))
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .strokeBorder(faction.doctrine == d ? Theme.gold.opacity(0.4) : Color.white.opacity(0.06),
-                                                          lineWidth: 0.9)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    // 背景
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             SectionLabel(text: "初始背景", english: "ORIGIN")
                             Spacer()
-                            Button {
-                                Haptics.select()
-                                BackgroundInterpreter.apply(to: &faction)
-                                read = BackgroundInterpreter.read(faction.background)
-                                storeRead()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "sparkles").font(.system(size: 9, weight: .semibold))
-                                    Text("解析").font(Theme.body(10, weight: .medium))
-                                }
-                                .foregroundStyle(Theme.gold)
-                            }
-                            .buttonStyle(.plain)
+                            Text("\(draft.background.count) 字")
+                                .font(Theme.mono(8.5))
+                                .foregroundStyle(Theme.textFaint)
                         }
-
                         ZStack(alignment: .topLeading) {
-                            if faction.background.isEmpty {
-                                Text("例：起于北方苦寒之地的骑射部族，以军功授爵，视边界为暂借。铁器稀缺，但马匹充足……")
+                            if draft.background.isEmpty {
+                                Text("写下它从哪里来：地理、物产、信仰、恐惧、仇恨。\nAI 会从这段文字里读出它的一切。")
                                     .font(Theme.body(11.5))
-                                    .lineSpacing(4)
+                                    .lineSpacing(4.5)
                                     .foregroundStyle(Theme.textFaint)
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 12)
+                                    .padding(.vertical, 13)
                                     .allowsHitTesting(false)
                             }
-                            TextEditor(text: $faction.background)
+                            TextEditor(text: $draft.background)
                                 .font(Theme.body(12))
-                                .lineSpacing(4)
+                                .lineSpacing(5)
                                 .foregroundStyle(Theme.textSoft)
                                 .scrollContentBackground(.hidden)
                                 .padding(8)
-                                .frame(minHeight: 132)
+                                .frame(minHeight: 148)
                         }
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.rSmall, style: .continuous)
-                                .fill(Color.white.opacity(0.035))
-                        )
+                        .background(RoundedRectangle(cornerRadius: Theme.rSmall, style: .continuous)
+                            .fill(Color.white.opacity(0.035)))
                         .hairlineBorder(Color.white.opacity(0.08), radius: Theme.rSmall)
-
-                        // 解析结果
-                        HStack(spacing: 6) {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Theme.teal)
-                            Text(read.summary.isEmpty ? "写入背景后点「解析」" : read.summary)
-                                .font(Theme.body(10.5))
-                                .foregroundStyle(Theme.textDim)
-                            Spacer()
-                        }
-                        if !read.tags.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 5) {
-                                    ForEach(read.tags, id: \.self) { tag in
-                                        Pill(text: tag, tint: Theme.teal, fill: Theme.teal.opacity(0.10), mono: true)
-                                    }
-                                }
-                            }
-                        }
                     }
 
-                    // 性格
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel(text: "性格权重", english: "TRAITS")
-                        traitSlider("尚武", $faction.aggression)
-                        traitSlider("工造", $faction.industry)
-                        traitSlider("崇文", $faction.science)
-                        traitSlider("扩张", $faction.expansion)
-                    }
+                    aiSection
 
-                    if canDelete {
-                        Button {
-                            Haptics.warning()
-                            onDelete()
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "trash").font(.system(size: 10, weight: .semibold))
-                                Text("移除此势力").font(Theme.body(12, weight: .medium))
-                            }
-                            .foregroundStyle(Theme.ember)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
-                            .background(RoundedRectangle(cornerRadius: Theme.rSmall, style: .continuous)
-                                .fill(Theme.ember.opacity(0.07)))
-                            .overlay(RoundedRectangle(cornerRadius: Theme.rSmall, style: .continuous)
-                                .strokeBorder(Theme.ember.opacity(0.25), lineWidth: 0.8))
-                        }
-                        .buttonStyle(.plain)
+                    GoldButton(title: isNew ? "让 AI 接管并保存" : "保存",
+                               subtitle: canSave ? "AI 将全权决定这个势力的一切" : "先写好名字并生成 AI",
+                               symbol: "checkmark.seal.fill",
+                               enabled: canSave) {
+                        onSave(draft)
+                        dismiss()
                     }
+                    .padding(.top, 2)
 
                     Spacer().frame(height: 40)
                 }
@@ -995,29 +886,198 @@ struct FactionEditorView: View {
         }
         .presentationDragIndicator(.visible)
         .onAppear {
-            read = BackgroundInterpreter.read(faction.background)
-        }
-        .onChange(of: faction.background) { _ in
-            read = BackgroundInterpreter.read(faction.background)
+            if draft.ai != nil { aiReveal = true }
         }
     }
 
-    private func storeRead() {
-        // 触发一次重绘
-        read = BackgroundInterpreter.read(faction.background)
-    }
-
-    private func traitSlider(_ name: String, _ value: Binding<Double>) -> some View {
-        VStack(spacing: 6) {
+    // MARK: AI 区块
+    private var aiSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(name).font(Theme.label(10)).tracking(1).foregroundStyle(Theme.textDim)
+                SectionLabel(text: "AI 核心", english: "CORE")
                 Spacer()
-                Text(String(format: "%.0f", value.wrappedValue * 100))
-                    .font(Theme.mono(10))
-                    .foregroundStyle(Theme.textSoft)
+                if let ai = draft.ai, !generating {
+                    Button {
+                        Haptics.tap()
+                        withAnimation(Motion.quick) {
+                            draft.ai = FactionAIForge.recolor(ai, background: draft.background,
+                                                              usedColors: usedColors)
+                            draft.colorIndex = draft.ai?.colorIndex ?? draft.colorIndex
+                        }
+                    } label: {
+                        Text("换配色").font(Theme.label(9)).tracking(1)
+                            .foregroundStyle(Theme.textDim)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Capsule().fill(Color.white.opacity(0.05)))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            Slider(value: value, in: 0.05...0.95)
-                .tint(Theme.gold)
+
+            if generating {
+                generatingCard
+            } else if let ai = draft.ai {
+                aiCard(ai)
+                    .opacity(aiReveal ? 1 : 0)
+                    .offset(y: aiReveal ? 0 : 10)
+                HStack(spacing: 8) {
+                    GhostButton(title: "重新生成", symbol: "arrow.triangle.2.circlepath") {
+                        generate()
+                    }
+                    Text(ai.model)
+                        .font(Theme.mono(8))
+                        .tracking(1)
+                        .foregroundStyle(Theme.textFaint)
+                    Spacer()
+                }
+            } else {
+                Button {
+                    generate()
+                } label: {
+                    VStack(spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("为此势力生成 AI 核心")
+                                .font(Theme.body(13, weight: .semibold))
+                        }
+                        .foregroundStyle(Theme.gold)
+                        Text("依据背景推导口号、旗色与执政路线")
+                            .font(Theme.body(10))
+                            .foregroundStyle(Theme.textDim)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 22)
+                    .background(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
+                        .fill(Theme.gold.opacity(0.05)))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
+                        .strokeBorder(Theme.gold.opacity(0.3),
+                                      style: StrokeStyle(lineWidth: 0.9, dash: [5, 4])))
+                }
+                .buttonStyle(Pressable())
+            }
         }
     }
+
+    private var generatingCard: some View {
+        ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    ProgressView().tint(Theme.gold).scaleEffect(0.7)
+                    Text(phases[min(phase, phases.count - 1)])
+                        .font(Theme.body(12, weight: .medium))
+                        .foregroundStyle(Theme.textSoft)
+                    Spacer()
+                    Text("LOCAL CORE 2")
+                        .font(Theme.mono(7.5))
+                        .tracking(1.2)
+                        .foregroundStyle(Theme.textFaint)
+                }
+                Text("▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                    .font(Theme.mono(9))
+                    .foregroundStyle(Theme.gold.opacity(0.35))
+                Text("▓▓▓▓▓▓▓▓▓▓▓▓")
+                    .font(Theme.mono(9))
+                    .foregroundStyle(Theme.gold.opacity(0.2))
+            }
+            .padding(16)
+
+            LinearGradient(colors: [.clear, Theme.gold.opacity(0.55), .clear],
+                           startPoint: .leading, endPoint: .trailing)
+                .frame(height: 1.2)
+                .padding(.horizontal, 6)
+                .offset(y: scan)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous)
+            .fill(Theme.panel))
+        .hairlineBorder(Theme.gold.opacity(0.22), radius: Theme.rMid)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.rMid, style: .continuous))
+        .onAppear {
+            scan = -4
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: false)) {
+                scan = 124
+            }
+        }
+    }
+
+    private func aiCard(_ ai: FactionAI) -> some View {
+        Panel(padding: 16, radius: Theme.rMid, raised: true) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle().fill(Theme.factionColor(ai.colorIndex).opacity(0.22))
+                        Circle().strokeBorder(Theme.factionColor(ai.colorIndex).opacity(0.7), lineWidth: 1)
+                        Circle().fill(Theme.factionColor(ai.colorIndex)).frame(width: 10, height: 10)
+                    }
+                    .frame(width: 34, height: 34)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(ai.name)
+                            .font(Theme.title(13, weight: .semibold))
+                            .foregroundStyle(Theme.text)
+                        Text("AI 已接管 · \(Theme.factionColorName(ai.colorIndex))")
+                            .font(Theme.label(8.5))
+                            .tracking(1)
+                            .foregroundStyle(Theme.teal)
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.teal)
+                }
+
+                Text("「\(ai.slogan)」")
+                    .font(Theme.display(18, weight: .semibold))
+                    .tracking(1.6)
+                    .foregroundStyle(LinearGradient(colors: [Theme.text, Theme.gold],
+                                                   startPoint: .top, endPoint: .bottom))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(ai.brief)
+                    .font(Theme.body(11.5))
+                    .lineSpacing(4.5)
+                    .foregroundStyle(Theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: 生成
+    private func generate() {
+        guard !generating else { return }
+        Haptics.tap()
+        generating = true
+        phase = 0
+        aiReveal = false
+        Task { @MainActor in
+            for i in 0..<phases.count {
+                phase = i
+                try? await Task.sleep(nanoseconds: 240_000_000)
+            }
+            let seed = worldSeed
+                &+ UInt64(abs((draft.name + draft.background).hashValue % 999_983))
+            let ai = FactionAIForge.generate(name: draft.name.isEmpty ? "无名势力" : draft.name,
+                                             background: draft.background,
+                                             seed: seed,
+                                             usedColors: usedColors)
+            draft.ai = ai
+            draft.colorIndex = ai.colorIndex
+            draft.doctrine = ai.doctrine
+            draft.symbol = ai.doctrine.symbol
+            draft.aggression = ai.aggression
+            draft.industry = ai.industry
+            draft.science = ai.science
+            draft.expansion = ai.expansion
+            generating = false
+            withAnimation(Motion.spring) { aiReveal = true }
+            Haptics.success()
+        }
+    }
+}
+
+struct IndexBox: Identifiable {
+    var index: Int
+    var id: Int { index }
 }
