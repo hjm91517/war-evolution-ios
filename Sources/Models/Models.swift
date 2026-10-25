@@ -290,23 +290,6 @@ struct TerritoryData: Codable, Equatable {
     }
 }
 
-// MARK: - 势力 AI（全权接管）
-struct FactionAI: Codable, Equatable {
-    var code: String          // AI 代号
-    var slogan: String        // 口号
-    var brief: String         // 自述
-    var doctrine: Doctrine
-    var colorIndex: Int
-    var aggression: Double
-    var industry: Double
-    var science: Double
-    var expansion: Double
-    var seed: UInt64
-    var model: String
-
-    var modelTag: String { model }
-}
-
 // MARK: - 势力的 AI 核心
 // 玩家只提供名字与初始背景；AI 由此推导口号、旗色、路线与决策参数，全权接管该势力。
 struct FactionAI: Codable, Equatable {
