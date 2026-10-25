@@ -318,7 +318,6 @@ struct Faction: Identifiable, Codable, Equatable {
     var doctrine: Doctrine = .conquest
     var background: String = ""
     var ai: FactionAI? = nil
-    var ai: FactionAI? = nil
 
     // 性格权重 0...1
     var aggression: Double = 0.5
