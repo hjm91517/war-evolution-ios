@@ -1,0 +1,56 @@
+name: build-ipa
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (unsigned device build)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project WarForge.xcodeproj \
+            -scheme WarForge \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | tail -n 120
+
+      - name: Package IPA
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/WarForge.app"
+          test -d "$APP_PATH"
+          mkdir -p out/Payload
+          cp -R "$APP_PATH" out/Payload/
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Info.plist"
+          cd out
+          zip -qry WarForge.ipa Payload
+          ls -lh WarForge.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WarForge-ipa
+          path: out/WarForge.ipa
+          if-no-files-found: error
+          retention-days: 30

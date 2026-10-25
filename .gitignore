@@ -1,0 +1,6 @@
+build/
+out/
+*.log
+.DS_Store
+_data/
+tools/
