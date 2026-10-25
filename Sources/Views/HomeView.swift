@@ -64,7 +64,9 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity)
             }
             .safeAreaInset(edge: .bottom) {
-                bottomBar
+                if !store.worlds.isEmpty {
+                    bottomBar
+                }
             }
         }
         .onAppear {

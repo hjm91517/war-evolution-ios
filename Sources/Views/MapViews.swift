@@ -192,7 +192,7 @@ struct WorldMapCanvas: View {
     var offset: CGSize = .zero
     var showGraticule: Bool = true
     var showTexture: Bool = true
-    var territoryOpacity: Double = 0.62
+    var territoryOpacity: Double = 0.74
     var softEdge: Bool = true
 
     var body: some View {
@@ -251,9 +251,10 @@ struct WorldMapCanvas: View {
                             LandShape()
                                 .frame(width: rect.width, height: rect.height)
                         )
-                        .saturation(1.02)
-                        .brightness(-0.03)
-                        .contrast(1.04)
+                        .saturation(0.52)
+                        .brightness(-0.10)
+                        .contrast(1.12)
+                        .colorMultiply(Color(hex: 0xD6E2DA))
                         .position(x: rect.midX, y: rect.midY)
                 } else {
                     LandShape()
@@ -269,7 +270,8 @@ struct WorldMapCanvas: View {
                         .interpolation(.high)
                         .frame(width: rect.width, height: rect.height)
                         .opacity(territoryOpacity)
-                        .blur(radius: softEdge ? 0.7 : 0)
+                        .saturation(1.08)
+                        .blur(radius: softEdge ? 0.9 : 0)
                         .position(x: rect.midX, y: rect.midY)
                 } else if let mesh, !mesh.fills.isEmpty {
                     Canvas { ctx, size in
@@ -305,6 +307,13 @@ struct WorldMapCanvas: View {
                     }
                     _ = size
                 }
+
+                // 压边，让画面沉进 UI
+                RadialGradient(colors: [.clear, Theme.ink.opacity(0.62)],
+                               center: .center,
+                               startRadius: min(sz.width, sz.height) * 0.34,
+                               endRadius: max(sz.width, sz.height) * 0.78)
+                    .allowsHitTesting(false)
 
                 // 地图外框
                 Rectangle()

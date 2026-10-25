@@ -289,10 +289,14 @@ struct CreateWorldView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(Theme.teal)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("初始纪元 · 原始时代")
+                            Text("开局 · \(draft.yearLabel(0)) · \(Era.name(for: World.initialTech(for: draft.startYear)))")
                                 .font(Theme.title(12.5, weight: .semibold))
                                 .foregroundStyle(Theme.text)
-                            Text("没有道路、没有铁、没有常备军。势力从石器聚落开始，用几百年学会冶炼，再学会航海与飞行。")
+                            Text(draft.startYear <= -1200
+                                 ? "没有道路、没有铁、没有常备军。势力从聚落开始，用几百年学会冶炼，再学会航海与飞行。"
+                                 : (draft.startYear < 1800
+                                    ? "势力带着这个时代已有的技术起局：城邦、文字、常备军与远洋航线都已存在。"
+                                    : "工业与电力的基础已经铺开。势力将从铁路、工厂与舰队开始争夺世界。"))
                                 .font(Theme.body(11))
                                 .lineSpacing(4)
                                 .foregroundStyle(Theme.textDim)

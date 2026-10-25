@@ -69,9 +69,9 @@ struct EvolutionView: View {
                                               showFactionDetail = true
                                           }
                                       })
-                                .frame(width: min(wide ? 340 : 320, geo.size.width * 0.86))
-                                .padding(.top, wide ? 74 : 62)
-                                .padding(.bottom, wide ? 96 : 86)
+                                .frame(width: min(wide ? 340 : 318, geo.size.width * 0.86),
+                                       height: wide ? nil : max(300, geo.size.height * 0.56))
+                                .padding(.bottom, wide ? 96 : 84)
                                 .padding(.trailing, wide ? 18 : 10)
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
                         } else {
@@ -80,6 +80,7 @@ struct EvolutionView: View {
                                 .padding(.top, 180)
                         }
                     }
+                    .frame(maxHeight: .infinity, alignment: feedOpen ? .bottom : .center)
                     .ignoresSafeArea(edges: .bottom)
                 } else {
                     missingState
@@ -492,7 +493,7 @@ struct FeedPanel: View {
                 filterChip("战报", 1)
                 filterChip("情报", 2)
                 Spacer()
-                Text(Fmt.year(world.tick))
+                Text(world.yearLabel())
                     .font(Theme.mono(9))
                     .foregroundStyle(Theme.textFaint)
             }

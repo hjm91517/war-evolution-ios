@@ -23,6 +23,7 @@ struct MapPainterView: View {
     @State private var territoryImage: UIImage?
     @State private var lastRebuild = Date.distantPast
     @State private var size: CGSize = .zero
+    @State private var didInit = false
 
     private var transform: MapTransform {
         MapTransform(zoom: zoom * pinch, offset: offset)
@@ -66,6 +67,11 @@ struct MapPainterView: View {
             }
             .onAppear {
                 size = sz
+                if !didInit {
+                    didInit = true
+                    zoom = 2.2
+                    baseZoom = 2.2
+                }
                 if mesh == nil {
                     mesh = TerritoryMesh.build(world)
                     territoryImage = TerritoryRaster.make(world: world)
@@ -215,6 +221,7 @@ struct EvolutionMapView: View {
     @GestureState private var pinch: CGFloat = 1
     @State private var dragStartOffset: CGSize? = nil
     @State private var didMove = false
+    @State private var didInit = false
 
     private var transform: MapTransform {
         MapTransform(zoom: zoom * pinch, offset: offset)
@@ -289,6 +296,13 @@ struct EvolutionMapView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.bottom, 12)
+                }
+            }
+            .onAppear {
+                if !didInit {
+                    didInit = true
+                    zoom = 1.8
+                    baseZoom = 1.8
                 }
             }
             .contentShape(Rectangle())
