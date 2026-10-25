@@ -26,7 +26,8 @@ struct CreateWorldView: View {
         if let w = initialWorld {
             _draft = State(initialValue: w)
             _isEditing = State(initialValue: true)
-            _step = State(initialValue: w.phase == .draft ? 0 : 1)
+            let forceMap = ProcessInfo.processInfo.arguments.contains("-previewMap")
+            _step = State(initialValue: (w.phase == .draft && !forceMap) ? 0 : 1)
         } else {
             let seed = UInt64.random(in: 1...99_999_999)
             var w = WorldBuilder.blankWorld(name: NameForge.worldName(seed: seed),

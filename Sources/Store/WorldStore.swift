@@ -408,6 +408,14 @@ enum WorldBuilder {
         return w
     }
 
+    static func previewDraft() -> World {
+        var w = blankWorld(name: "朔风纪元", seed: 0x5EED_7742, level: .nation)
+        w.factions = (0..<4).map { newFaction(index: $0, seed: w.seed) }
+        let map = TerrainMap.generate(seed: w.seed)
+        autoDistribute(&w, terrain: map)
+        return w
+    }
+
     static func nearestLandCell(lat: Double, lon: Double) -> Int {
         let geo = GeoWorld.shared
         var best = -1

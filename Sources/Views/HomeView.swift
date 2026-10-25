@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var deleteWorld: World? = nil
     @State private var showAbout = false
     @State private var appeared = false
+    @State private var previewMap = false
 
     var body: some View {
         ZStack {
@@ -67,6 +68,11 @@ struct HomeView: View {
         }
         .onAppear {
             withAnimation(Motion.standard.delay(0.05)) { appeared = true }
+            handlePreview()
+        }
+        .fullScreenCover(isPresented: $previewMap) {
+            CreateWorldView(initialWorld: WorldBuilder.previewDraft())
+                .environmentObject(store)
         }
         .fullScreenCover(isPresented: Binding(
             get: { activeWorldID != nil },
@@ -290,6 +296,23 @@ struct HomeView: View {
             .padding(.horizontal, 18)
             .padding(.bottom, 6)
             .background(Theme.ink.opacity(0.96))
+        }
+    }
+
+    private func handlePreview() {
+        guard PreviewMode.skipLaunch else { return }
+        if store.worlds.isEmpty {
+            store.add(WorldBuilder.sampleWorld())
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            if PreviewMode.wantsEvolution, let w = store.worlds.first {
+                store.enter(w.id)
+                activeWorldID = w.id
+            } else if PreviewMode.wantsCreate {
+                showCreate = true
+            } else if PreviewMode.wantsMap {
+                previewMap = true
+            }
         }
     }
 

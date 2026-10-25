@@ -19,9 +19,19 @@ struct WarForgeApp: App {
     }
 }
 
+enum PreviewMode {
+    static var args: [String] { ProcessInfo.processInfo.arguments }
+    static var skipLaunch: Bool {
+        args.contains { $0.hasPrefix("-preview") }
+    }
+    static var wantsEvolution: Bool { args.contains("-previewEvolve") }
+    static var wantsCreate: Bool { args.contains("-previewCreate") }
+    static var wantsMap: Bool { args.contains("-previewMap") }
+}
+
 struct RootView: View {
     @EnvironmentObject private var store: WorldStore
-    @State private var launched = false
+    @State private var launched = PreviewMode.skipLaunch
 
     var body: some View {
         ZStack {
@@ -52,6 +62,9 @@ struct RootView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(20)
             }
+        }
+        .onAppear {
+            if PreviewMode.skipLaunch { launched = true }
         }
         .animation(Motion.standard, value: store.toast)
         .animation(Motion.quick, value: store.catchUp)
