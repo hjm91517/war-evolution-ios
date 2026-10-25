@@ -335,12 +335,12 @@ struct Faction: Identifiable, Codable, Equatable {
     var color: Color { Theme.factionColor(colorIndex) }
 
     var power: Double {
-        military * 0.55 + tech * 0.9 + population * 0.02 + territory * 0.5
+        military * 0.55 + tech * 0.9 + population * 0.02 + Double(territory) * 0.5
     }
 
     var techName: String { Era.name(for: tech) }
 
-    var populationCap: Double { 60 + tech * 5 + territory * 2 }
+    var populationCap: Double { 60 + tech * 5 + Double(territory) * 2 }
 }
 
 // MARK: - 时代

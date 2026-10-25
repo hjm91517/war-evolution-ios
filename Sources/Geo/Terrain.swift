@@ -292,6 +292,13 @@ struct SeededRNG: RandomNumberGenerator {
         return range.lowerBound + Int(next() % UInt64(range.count))
     }
 
+    mutating func int(_ range: ClosedRange<Int>) -> Int {
+        let lo = range.lowerBound
+        let span = range.upperBound - lo + 1
+        guard span > 0 else { return lo }
+        return lo + Int(next() % UInt64(span))
+    }
+
     mutating func chance(_ p: Double) -> Bool { unit() < p }
 
     mutating func pick<T>(_ array: [T]) -> T? {
