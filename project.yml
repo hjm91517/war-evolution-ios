@@ -39,7 +39,7 @@ targets:
         SUPPORTS_MACCATALYST: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
     info:
-      path: Sources/Info.plist
+      path: Support/Info.plist
       properties:
         CFBundleDisplayName: 战争演变
         CFBundleShortVersionString: "1.0.0"
